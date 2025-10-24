@@ -1,49 +1,55 @@
-name: Daily Tieba Sign-In
+name: ys168 Login
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '30 22 * * *'  # 北京时间 6:30 (UTC+8)
+    - cron: '0 7 3 * *'  # 每月3日7点运行（UTC）
+  workflow_dispatch:
 
 jobs:
-  signin:
+  ys168-login:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # 允许工作流修改仓库内容（用于保活提交）
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          persist-credentials: true  # 保留凭据用于后续提交
+          persist-credentials: true  # 保留凭据用于提交
+          fetch-depth: 0  # 拉取完整历史，确保能获取最后一次提交时间
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          distribution: 'zulu'
-          java-version: '8'
-          cache: 'maven'
+          python-version: '3.13.2'
+          cache: 'pip'
 
-      - name: Build and execute
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run login script
+        run: python run.py
         env:
-          BDUSS: ${{ secrets.BDUSS }}
-          SCKEY: ${{ secrets.SCKEY }}
-        run: |
-          mvn -B compile exec:java \
-            -Dexec.mainClass="top.srcrs.Run" \
-            -Dexec.args="$BDUSS $SCKEY"
+          LOGIN_USERNAME: ${{ secrets.LOGIN_USERNAME }}
+          LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
+          PUSH: ${{ secrets.PUSH }}
+          MAIL: ${{ secrets.MAIL }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-      - name: Keep repository active
+      # 新增：智能保持仓库活跃（仅45天无提交时才行动）
+      - name: Keep repo active (if needed)
         run: |
-          # 检查最后一次提交是否超过45天（避免频繁提交）
+          # 检查最后一次提交是否超过45天
           last_commit=$(git log -1 --format=%cd --date=unix)
           current_time=$(date +%s)
           days_since_last_commit=$(( (current_time - last_commit) / 86400 ))
           
+          echo "Days since last commit: $days_since_last_commit"
+          
           if [ $days_since_last_commit -ge 45 ]; then
-            # 创建一个空提交保持活跃
+            echo "More than 45 days without commit, creating keepalive commit..."
             git config --global user.name "GitHub Actions"
             git config --global user.email "actions@github.com"
-            git commit --allow-empty -m "Auto-keepalive: Prevent workflow disable"
-            git push origin main  # 注意：如果你的主分支是master，这里改为master
+            git commit --allow-empty -m "自动保活：防止工作流被禁用（距离上次提交已过去 ${days_since_last_commit} 天）"
+            git push origin main  # 替换为你的实际分支名（如master）
+          else
+            echo "No need to keepalive (less than 45 days since last commit)"
           fi
